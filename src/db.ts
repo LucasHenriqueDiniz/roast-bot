@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { config } from './config.js';
+import { config } from './config.ts';
 
 const dbFile = resolve(config.dbPath);
 mkdirSync(dirname(dbFile), { recursive: true });

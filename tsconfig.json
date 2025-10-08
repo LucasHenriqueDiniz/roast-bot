@@ -1,10 +1,12 @@
 {
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./dist",
     "module": "nodenext",
     "target": "esnext",
     "strict": true,
-    "skipLibCheck": true
-  }
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src"]
 }

@@ -8,8 +8,8 @@ import {
 } from 'discord.js';
 import pino from 'pino';
 import { request } from 'undici';
-import { config } from './config.js';
-import { appendUserMessageContext, getUserContext } from './db.js';
+import { config } from './config.ts';
+import { appendUserMessageContext, getUserContext } from './db.ts';
 
 type ChannelMessage = {
   userId: string;
@@ -121,18 +121,37 @@ client.on('interactionCreate', async (itx) => {
         }
       }
 
+      const normalizedContext = longTermContext?.trim();
+
       const userPromptParts = [
         `Requester: ${itx.user.username}`,
         history ? `Recent chat:\n${history}` : 'No recent chat provided.'
       ];
-      if (longTermContext) {
-        userPromptParts.push(`User context:\n${longTermContext}`);
+      if (normalizedContext != null) {
+        if (normalizedContext.length) {
+          userPromptParts.push(`User context:\n${normalizedContext}`);
+        } else {
+          userPromptParts.push('User context: (no stored messages yet)');
+        }
       } else {
         userPromptParts.push('No stored context for this user.');
       }
       userPromptParts.push('Craft a single roast reply addressed to the requester.');
 
       const userPrompt = userPromptParts.join('\n\n');
+
+      log.info(
+        {
+          scope: 'roastme',
+          guildId: itx.guildId,
+          userId: itx.user.id,
+          intensidade,
+          contexto,
+          history,
+          longTermContext: normalizedContext
+        },
+        'assembled roastme context'
+      );
 
       const reply = await chatOllama(
         [{ role: 'system', content: system }, { role: 'user', content: userPrompt }],
@@ -196,8 +215,7 @@ async function generatePassiveRoast(message: Message, buffer: ChannelMessage[]) 
   const guildId = message.guildId;
   if (!guildId) return null;
 
-  const last = buffer.at(-1);
-  if (!last) return null;
+  const last = buffer[buffer.length - 1];
 
   const history = buffer.map((entry) => `${entry.username}: ${entry.content}`).join('\n');
 
@@ -208,19 +226,28 @@ async function generatePassiveRoast(message: Message, buffer: ChannelMessage[]) 
     }
   }
 
-  const longTermContext = [...displayNamesByUser.entries()]
-    .map(([userId, username]) => {
-      try {
-        const ctx = getUserContext(guildId, userId);
-        if (!ctx) return null;
-        return `Context for ${username}: ${ctx}`;
-      } catch (error) {
-        log.warn({ err: error, userId }, 'failed to load passive context');
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .join('\n') || null;
+  const contexts: string[] = [];
+  const contextErrors: { userId: string; message: string }[] = [];
+
+  for (const [userId, username] of displayNamesByUser.entries()) {
+    try {
+      const ctx = getUserContext(guildId, userId);
+      if (ctx == null) continue;
+
+      const trimmed = ctx.trim();
+      contexts.push(
+        trimmed ? `Context for ${username}: ${trimmed}` : `Context for ${username}: (no stored messages yet)`
+      );
+    } catch (error) {
+      contextErrors.push({ userId, message: (error as Error).message });
+    }
+  }
+
+  if (contextErrors.length) {
+    log.warn({ errors: contextErrors }, 'failed to load passive context for some users');
+  }
+
+  const longTermContext = contexts.length ? contexts.join('\n') : null;
 
   const systemPrompt = [
     'You are a playful Discord bot that delivers witty roasts based on the conversation context.',
@@ -228,12 +255,28 @@ async function generatePassiveRoast(message: Message, buffer: ChannelMessage[]) 
     `Focus the roast on ${last.username}, referencing the recent conversation when useful.`
   ].join(' ');
 
-  const userPrompt = [
-    `Recent conversation:\n${history}`,
-    longTermContext ? `Stored context:\n${longTermContext}` : 'No additional stored context.'
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+  const userPromptParts = [`Recent conversation:\n${history}`];
+  if (longTermContext) {
+    userPromptParts.push(`Stored context:\n${longTermContext}`);
+  } else {
+    userPromptParts.push('No additional stored context.');
+  }
+
+  const userPrompt = userPromptParts.join('\n\n');
+
+  log.info(
+    {
+      scope: 'passive-roast',
+      guildId,
+      channelId: message.channelId,
+      targetUserId: last.userId,
+      bufferSize: buffer.length,
+      contextsLoaded: contexts.length,
+      history,
+      longTermContext
+    },
+    'assembled passive roast context'
+  );
 
   const response = await chatOllama(
     [

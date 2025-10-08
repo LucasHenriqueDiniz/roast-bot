@@ -1,5 +1,5 @@
 import { REST, Routes, SlashCommandBuilder } from 'discord.js';
-import { config } from './config.js';
+import { config } from './config.ts';
 
 function requireEnv(value: string | undefined, name: string): string {
   if (!value) {
