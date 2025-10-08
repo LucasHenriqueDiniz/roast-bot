@@ -10,13 +10,31 @@ export type IngestedMessage = {
   displayName?: string;
   content: string;
   timestamp: number;
+  messageId?: string;
 };
 
 const pendingCounters = new Map<string, number>();
 
-export function ingestMessage(message: IngestedMessage) {
-  storeMessage(message.guildId, message.channelId, message.userId, message.timestamp, message.content);
+export function ingestMessage(message: IngestedMessage, options: { skipProfileRefresh?: boolean } = {}) {
+  const inserted = storeMessage(
+    message.guildId,
+    message.channelId,
+    message.userId,
+    message.timestamp,
+    message.content,
+    message.messageId
+  );
+
+  if (!inserted) {
+    return;
+  }
+
   captureSnippetIfInteresting(message);
+
+  if (options.skipProfileRefresh) {
+    return;
+  }
+
   bumpCounter(message.guildId, message.userId);
   maybeRefreshProfile(message);
 }

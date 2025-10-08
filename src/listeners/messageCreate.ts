@@ -31,7 +31,8 @@ export async function onMessageCreate(message: Message) {
     userId: message.author.id,
     displayName: message.member?.displayName ?? message.author.username,
     content: message.cleanContent,
-    timestamp: message.createdTimestamp
+    timestamp: message.createdTimestamp,
+    messageId: message.id
   });
 
   const state = getChannelState(message.channelId);

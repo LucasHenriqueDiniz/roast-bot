@@ -1,5 +1,7 @@
 import { ChatInputCommandInteraction, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { config } from '../config.ts';
 import { buildUserContextBlock } from '../context/builder.ts';
+import { backfillUserMessages } from '../context/history.ts';
 import { forceRefreshProfile } from '../context/ingest.ts';
 import { log } from '../logger.ts';
 import { clampDiscordMessage } from '../util/text.ts';
@@ -7,7 +9,7 @@ import { clampDiscordMessage } from '../util/text.ts';
 const UPDATE_CONTEXT_BUDGET = 3000;
 
 export async function handleUpdateContextCommand(interaction: ChatInputCommandInteraction) {
-  if (!interaction.guildId) {
+  if (!interaction.guildId || !interaction.guild) {
     await interaction.reply({ content: 'Somente em servidores.', flags: MessageFlags.Ephemeral });
     return;
   }
@@ -23,6 +25,12 @@ export async function handleUpdateContextCommand(interaction: ChatInputCommandIn
     return;
   }
 
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const backfill = await backfillUserMessages(interaction.guild, target.id, {
+    limit: config.profileRecentMessageLimit
+  });
+
   forceRefreshProfile(interaction.guildId, target.id, target.username);
   const block = buildUserContextBlock(interaction.guildId, target.id, UPDATE_CONTEXT_BUDGET);
 
@@ -31,20 +39,28 @@ export async function handleUpdateContextCommand(interaction: ChatInputCommandIn
       scope: 'update-context-command',
       guildId: interaction.guildId,
       targetUserId: target.id,
-      tokensUsed: block.tokensUsed
+      tokensUsed: block.tokensUsed,
+      backfilledMessages: backfill.collected,
+      backfillErrors: backfill.errors,
+      channelsScanned: backfill.scannedChannels
     },
     'manual context refresh'
   );
 
   const header = `Contexto regenerado para ${target.username} (até ${UPDATE_CONTEXT_BUDGET} tokens).`;
   const body = block.text ?? 'Nenhum dado salvo ainda.';
-  const message = clampDiscordMessage(`${header}\n\n${body}`);
+  const summaryLines = [
+    header,
+    `Mensagens consideradas: ${backfill.collected} (canais: ${backfill.scannedChannels}` +
+      (backfill.errors ? `, falhas: ${backfill.errors}` : '') +
+      ')',
+    '',
+    body
+  ];
 
-  if (interaction.deferred || interaction.replied) {
-    await interaction.editReply(message);
-  } else {
-    await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
-  }
+  const message = clampDiscordMessage(summaryLines.join('\n'));
+
+  await interaction.editReply({ content: message });
 }
 
 function canManageGuild(interaction: ChatInputCommandInteraction): boolean {

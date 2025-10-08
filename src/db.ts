@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS messages (
   channel_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   ts INTEGER NOT NULL,
-  content TEXT NOT NULL
+  content TEXT NOT NULL,
+  message_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_user_ts ON messages (guild_id, user_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_guild_channel_ts ON messages (guild_id, channel_id, ts DESC);
@@ -69,6 +70,21 @@ CREATE TABLE IF NOT EXISTS channel_settings (
 );
 `);
 
+ensureMessageIdColumn();
+createMessageIdIndex();
+
+function ensureMessageIdColumn() {
+  const columns = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+  const hasColumn = columns.some((column) => column.name === 'message_id');
+  if (!hasColumn) {
+    db.exec("ALTER TABLE messages ADD COLUMN message_id TEXT");
+  }
+}
+
+function createMessageIdIndex() {
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_message_id ON messages (message_id)");
+}
+
 export type StoredMessage = {
   id: number;
   guildId: string;
@@ -76,17 +92,25 @@ export type StoredMessage = {
   userId: string;
   ts: number;
   content: string;
+  messageId?: string | null;
 };
 
 const insertMessageStmt = db.prepare<[
-  { guildId: string; channelId: string; userId: string; ts: number; content: string }
-]>(
-  `INSERT INTO messages (guild_id, channel_id, user_id, ts, content)
-   VALUES (@guildId, @channelId, @userId, @ts, @content)`
+  {
+    guildId: string;
+    channelId: string;
+    userId: string;
+    ts: number;
+    content: string;
+    messageId?: string | null;
+  }
+]> (
+  `INSERT OR IGNORE INTO messages (guild_id, channel_id, user_id, ts, content, message_id)
+   VALUES (@guildId, @channelId, @userId, @ts, @content, @messageId)`
 );
 
 const selectRecentMessagesStmt = db.prepare(
-  `SELECT id, guild_id as guildId, channel_id as channelId, user_id as userId, ts, content
+  `SELECT id, guild_id as guildId, channel_id as channelId, user_id as userId, ts, content, message_id as messageId
    FROM messages
    WHERE guild_id = @guildId AND user_id = @userId
    ORDER BY ts DESC
@@ -201,9 +225,11 @@ export function storeMessage(
   channelId: string,
   userId: string,
   ts: number,
-  content: string
-) {
-  insertMessageStmt.run({ guildId, channelId, userId, ts, content });
+  content: string,
+  messageId?: string
+): boolean {
+  const result = insertMessageStmt.run({ guildId, channelId, userId, ts, content, messageId });
+  return result.changes > 0;
 }
 
 export function getRecentMessagesForUser(
@@ -218,6 +244,7 @@ export function getRecentMessagesForUser(
     userId: string;
     ts: number;
     content: string;
+    messageId?: string | null;
   }[];
 
   return rows.map((row) => ({
@@ -226,7 +253,8 @@ export function getRecentMessagesForUser(
     channelId: row.channelId,
     userId: row.userId,
     ts: row.ts,
-    content: row.content
+    content: row.content,
+    messageId: row.messageId ?? undefined
   }));
 }
 
