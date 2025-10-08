@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (guild_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS channel_settings (
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  passive_interval INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, channel_id)
+);
 `);
 
 export type StoredMessage = {
@@ -134,6 +142,30 @@ const pruneSnippetsStmt = db.prepare<[
   { guildId: string; userId: string; minScore: number }
 ]>(
   `DELETE FROM user_snippets WHERE guild_id = @guildId AND user_id = @userId AND score < @minScore`
+);
+
+const getChannelSettingsStmt = db.prepare<[
+  { guildId: string; channelId: string }
+], { passive_interval: number; updated_at: number } | undefined>(
+  `SELECT passive_interval, updated_at
+   FROM channel_settings
+   WHERE guild_id = @guildId AND channel_id = @channelId`
+);
+
+const upsertChannelSettingsStmt = db.prepare<[
+  { guildId: string; channelId: string; passiveInterval: number; updatedAt: number }
+]>(
+  `INSERT INTO channel_settings (guild_id, channel_id, passive_interval, updated_at)
+   VALUES (@guildId, @channelId, @passiveInterval, @updatedAt)
+   ON CONFLICT(guild_id, channel_id) DO UPDATE SET
+     passive_interval = excluded.passive_interval,
+     updated_at = excluded.updated_at`
+);
+
+const deleteChannelSettingsStmt = db.prepare<[
+  { guildId: string; channelId: string }
+]>(
+  `DELETE FROM channel_settings WHERE guild_id = @guildId AND channel_id = @channelId`
 );
 
 export function storeMessage(
@@ -279,6 +311,28 @@ export function decaySnippets(guildId: string, userId: string, factor: number) {
 
 export function pruneSnippets(guildId: string, userId: string, minScore: number) {
   pruneSnippetsStmt.run({ guildId, userId, minScore });
+}
+
+export function getChannelPassiveInterval(
+  guildId: string,
+  channelId: string
+): { interval: number; updatedAt: number } | null {
+  const row = getChannelSettingsStmt.get({ guildId, channelId });
+  if (!row) return null;
+  return { interval: row.passive_interval, updatedAt: row.updated_at };
+}
+
+export function setChannelPassiveInterval(
+  guildId: string,
+  channelId: string,
+  passiveInterval: number,
+  updatedAt: number
+) {
+  upsertChannelSettingsStmt.run({ guildId, channelId, passiveInterval, updatedAt });
+}
+
+export function clearChannelPassiveInterval(guildId: string, channelId: string) {
+  deleteChannelSettingsStmt.run({ guildId, channelId });
 }
 
 function safeParseTags(input: string): string[] {

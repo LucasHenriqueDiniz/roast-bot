@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, Message, MessageFlags, TextBasedChannel } from 'discord.js';
 import { config } from '../config.ts';
 import { buildRoastPrompt, RecentMessage } from '../context/builder.ts';
-import { chat } from '../llm.ts';
+import { chat, LLMRequestError, LLMTimeoutError } from '../llm.ts';
 import { log } from '../logger.ts';
 import { sanitizeForPrompt } from '../util/text.ts';
 
@@ -18,30 +18,59 @@ export async function handleRoastMe(interaction: ChatInputCommandInteraction) {
 
   const recentMessages = await collectRecentMessages(interaction, contexto);
 
-  const prompt = buildRoastPrompt({
-    guildId: interaction.guildId,
-    requesterId: interaction.user.id,
-    requesterDisplayName: resolveDisplayName(interaction),
-    intensity: intensidade,
-    recentMessages,
-    budgetTokens: contexto >= 8 ? config.contextExtendedBudget : config.contextCompactBudget
-  });
+  const budgets = buildBudgetList(contexto);
+  let lastError: unknown = null;
 
-  try {
-    const reply = await chat(
-      [
-        { role: 'system', content: prompt.system },
-        { role: 'user', content: prompt.user }
-      ],
-      { temperature: 0.9 }
-    );
+  for (let attempt = 0; attempt < budgets.length; attempt += 1) {
+    const budget = budgets[attempt];
+    const prompt = buildRoastPrompt({
+      guildId: interaction.guildId,
+      requesterId: interaction.user.id,
+      requesterDisplayName: resolveDisplayName(interaction),
+      intensity: intensidade,
+      recentMessages,
+      budgetTokens: budget
+    });
 
-    const message = reply || 'Sem material ainda. Tenta de novo depois.';
-    await interaction.editReply(message);
-  } catch (error) {
-    log.error({ err: error }, 'failed to roast user');
-    await interaction.editReply('Erro chamando o modelo.');
+    try {
+      const reply = await chat(
+        [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user }
+        ],
+        {
+          temperature: 0.9,
+          timeoutMs: attempt === 0 ? config.llmTimeoutMs : config.llmRetryTimeoutMs
+        }
+      );
+
+      const message = reply || 'Sem material ainda. Tenta de novo depois.';
+      await interaction.editReply(message);
+      return;
+    } catch (error) {
+      lastError = error;
+
+      if (error instanceof LLMTimeoutError) {
+        log.warn(
+          { err: error, budget, attempt: attempt + 1, budgets },
+          'roast attempt timed out, trying fallback budget'
+        );
+        continue;
+      }
+
+      if (error instanceof LLMRequestError) {
+        log.error({ err: error, budget, attempt: attempt + 1 }, 'failed to roast user');
+      }
+      break;
+    }
   }
+
+  const timeoutMessage =
+    lastError instanceof LLMTimeoutError
+      ? 'O modelo demorou demais pra responder. Tenta de novo em alguns segundos.'
+      : 'Erro chamando o modelo. Veja os logs.';
+
+  await interaction.editReply(timeoutMessage);
 }
 
 async function collectRecentMessages(
@@ -84,4 +113,10 @@ function resolveDisplayName(interaction: ChatInputCommandInteraction): string {
   }
 
   return interaction.user.username;
+}
+
+function buildBudgetList(contexto: number): number[] {
+  const primary = contexto >= 8 ? config.contextExtendedBudget : config.contextCompactBudget;
+  const fallback = config.contextCompactBudget;
+  return primary === fallback ? [primary] : [primary, fallback];
 }

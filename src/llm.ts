@@ -6,10 +6,27 @@ export type ChatMessage = {
   content: string;
 };
 
-export async function chat(
-  messages: ChatMessage[],
-  { temperature = 0.8, timeoutMs = 12_000 }: { temperature?: number; timeoutMs?: number } = {}
-): Promise<string> {
+export type ChatOptions = {
+  temperature?: number;
+  timeoutMs?: number;
+};
+
+export class LLMRequestError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = 'LLMRequestError';
+  }
+}
+
+export class LLMTimeoutError extends LLMRequestError {
+  constructor(message = 'LLM request timed out') {
+    super(message);
+    this.name = 'LLMTimeoutError';
+  }
+}
+
+export async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
+  const { temperature = 0.8, timeoutMs = config.llmTimeoutMs } = options;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -28,17 +45,24 @@ export async function chat(
 
     if (statusCode < 200 || statusCode >= 300) {
       const errorText = await body.text();
-      throw new Error(`Ollama responded ${statusCode}: ${errorText}`);
+      throw new LLMRequestError(`Ollama responded ${statusCode}: ${errorText}`);
     }
 
     const raw = await body.text();
-    const json = JSON.parse(raw);
-    return (json?.message?.content ?? '').trim();
+    try {
+      const json = JSON.parse(raw);
+      return (json?.message?.content ?? '').trim();
+    } catch (parseError) {
+      throw new LLMRequestError('Failed to parse Ollama response', parseError);
+    }
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
-      throw new Error('LLM request timed out');
+      throw new LLMTimeoutError();
     }
-    throw error;
+    if (error instanceof LLMRequestError) {
+      throw error;
+    }
+    throw new LLMRequestError('Unexpected LLM failure', error);
   } finally {
     clearTimeout(timeout);
   }

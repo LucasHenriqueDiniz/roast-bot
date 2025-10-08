@@ -26,6 +26,43 @@ export async function handleContextCommand(interaction: ChatInputCommandInteract
     return;
   }
 
+  if (subcommand === 'gerar') {
+    if (targetUser.id !== interaction.user.id && !canManageGuild(interaction)) {
+      await interaction.reply({
+        content: 'Você não tem permissão para gerar contexto de outros usuários.',
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    forceRefreshProfile(interaction.guildId, targetUser.id, targetDisplayName);
+
+    const compact = buildUserContextBlock(
+      interaction.guildId,
+      targetUser.id,
+      config.contextCompactBudget
+    );
+    const extended = buildUserContextBlock(
+      interaction.guildId,
+      targetUser.id,
+      config.contextExtendedBudget
+    );
+
+    log.info(
+      {
+        scope: 'context-generate',
+        guildId: interaction.guildId,
+        userId: targetUser.id,
+        compactTokens: compact.tokensUsed,
+        extendedTokens: extended.tokensUsed
+      },
+      'context regenerated via command'
+    );
+
+    await replyWithContextBundles(interaction, compact, extended, targetDisplayName);
+    return;
+  }
+
   if (subcommand === 'mostrar') {
     const budgetChoice = interaction.options.getString('budget') ?? 'compacto';
     const budget = budgetChoice === 'expandido' ? config.contextExtendedBudget : config.contextCompactBudget;
@@ -51,4 +88,38 @@ function canManageGuild(interaction: ChatInputCommandInteraction): boolean {
   if (!permissions) return false;
 
   return permissions.has(PermissionFlagsBits.ManageGuild);
+}
+
+async function replyWithContextBundles(
+  interaction: ChatInputCommandInteraction,
+  compact: ReturnType<typeof buildUserContextBlock>,
+  extended: ReturnType<typeof buildUserContextBlock>,
+  displayName: string
+) {
+  const compactMessage = formatContextSection(
+    `Contexto compacto (~${config.contextCompactBudget} tokens) para ${displayName}`,
+    compact
+  );
+  const extendedMessage = formatContextSection(
+    `Contexto expandido (~${config.contextExtendedBudget} tokens) para ${displayName}`,
+    extended
+  );
+
+  const combined = `${compactMessage}\n\n${extendedMessage}`;
+  if (combined.length <= 1900) {
+    await interaction.reply({ content: clampDiscordMessage(combined), flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  await interaction.reply({ content: clampDiscordMessage(compactMessage), flags: MessageFlags.Ephemeral });
+  await interaction.followUp({
+    content: clampDiscordMessage(extendedMessage),
+    flags: MessageFlags.Ephemeral
+  });
+}
+
+function formatContextSection(title: string, block: ReturnType<typeof buildUserContextBlock>): string {
+  const header = `${title} — tokens usados: ${block.tokensUsed}`;
+  const body = block.text ?? 'Nenhum contexto armazenado.';
+  return `${header}\n\n${body}`;
 }
