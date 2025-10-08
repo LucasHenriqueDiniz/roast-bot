@@ -73,13 +73,16 @@ export function appendUserMessageContext(guildId: string, userId: string, conten
 }
 
 export function getUserContext(guildId: string, userId: string): string | null {
-  const row = getUserContextStmt.get({ guildId, userId });
-  if (!row?.messages) return null;
   try {
+    const row = getUserContextStmt.get({ guildId, userId });
+    if (!row?.messages) return null;
+
     const parsed = JSON.parse(row.messages);
     if (!Array.isArray(parsed)) return null;
+
     return parsed.filter((item): item is string => typeof item === 'string').join('\n');
-  } catch {
+  } catch (error) {
+    console.error('Failed to load user context', error);
     return null;
   }
 }

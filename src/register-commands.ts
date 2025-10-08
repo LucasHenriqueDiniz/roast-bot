@@ -1,12 +1,16 @@
 import { REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { config } from './config.js';
 
-if (!config.discordToken || !config.discordAppId || !config.allowedGuildId) {
-  throw new Error('Missing env: DISCORD_TOKEN / DISCORD_APP_ID / ALLOWED_GUILD_ID');
+function requireEnv(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(`Missing env: ${name}`);
+  }
+  return value;
 }
 
-const appId = config.discordAppId;
-const guildId = config.allowedGuildId;
+const discordToken = requireEnv(config.discordToken, 'DISCORD_TOKEN');
+const discordAppId = requireEnv(config.discordAppId, 'DISCORD_APP_ID');
+const allowedGuildId = requireEnv(config.allowedGuildId, 'ALLOWED_GUILD_ID');
 
 const commands = [
   new SlashCommandBuilder().setName('ping').setDescription('Pong!').toJSON(),
@@ -23,8 +27,8 @@ const commands = [
 ];
 
 async function main() {
-  const rest = new REST({ version: '10' }).setToken(config.discordToken);
-  await rest.put(Routes.applicationGuildCommands(appId!, guildId!), {
+  const rest = new REST({ version: '10' }).setToken(discordToken);
+  await rest.put(Routes.applicationGuildCommands(discordAppId, allowedGuildId), {
     body: commands
   });
   console.log('✅ Slash commands registrados no guild.');
