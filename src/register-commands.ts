@@ -1,5 +1,8 @@
 import { ChannelType, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { config } from './config.ts';
+import { log } from './logger.ts';
+import { LANGUAGE_CHOICES } from './settings/languages.ts';
+import { PERSONALITY_CHOICES } from './settings/personalities.ts';
 
 function requireEnv(value: string | undefined, name: string): string {
   if (!value) {
@@ -8,137 +11,99 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
-const discordToken = requireEnv(config.discordToken, 'DISCORD_TOKEN');
-const discordAppId = requireEnv(config.discordAppId, 'DISCORD_APP_ID');
-const allowedGuildId = requireEnv(config.allowedGuildId, 'ALLOWED_GUILD_ID');
-
-const commands = [
-  new SlashCommandBuilder().setName('ping').setDescription('Pong!').toJSON(),
+const slashCommands = [
   new SlashCommandBuilder()
     .setName('roastme')
-    .setDescription('Receba um roast (opt-in).')
-    .addIntegerOption((o) =>
-      o.setName('intensidade').setDescription('0=leve, 1=moderado, 2=picante').setMinValue(0).setMaxValue(2)
+    .setDescription('Receba um roast pesado utilizando seu contexto armazenado.')
+    .addIntegerOption((option) =>
+      option
+        .setName('intensidade')
+        .setDescription('0=leve, 1=moderado, 2=feroz')
+        .setMinValue(0)
+        .setMaxValue(2)
     )
-    .addIntegerOption((o) =>
-      o.setName('contexto').setDescription('Mensagens recentes para contexto (0–15)').setMinValue(0).setMaxValue(15)
-    )
-    .toJSON(),
-  new SlashCommandBuilder()
-    .setName('contexto')
-    .setDescription('Gerencia o contexto individual dos roasts')
-    .addSubcommand((sub) =>
-      sub
-        .setName('atualizar')
-        .setDescription('Força a reconstrução do contexto do usuário alvo')
-        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuário alvo'))
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('gerar')
-        .setDescription('Reconstrói o contexto e mostra o resultado')
-        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuário alvo'))
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('mostrar')
-        .setDescription('Mostra o contexto salvo para inspeção')
-        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuário alvo'))
-        .addStringOption((opt) =>
-          opt
-            .setName('budget')
-            .setDescription('Escolha o tamanho do contexto')
-            .addChoices(
-              { name: 'compacto (~1k tokens)', value: 'compacto' },
-              { name: 'expandido (~3k tokens)', value: 'expandido' }
-            )
-        )
+    .addIntegerOption((option) =>
+      option
+        .setName('contexto')
+        .setDescription('Mensagens recentes extras para compor o roast (0-15)')
+        .setMinValue(0)
+        .setMaxValue(15)
     )
     .toJSON(),
   new SlashCommandBuilder()
-    .setName('passivo')
-    .setDescription('Controla o modo passivo de roasts')
-    .addSubcommand((sub) =>
-      sub
-        .setName('disparar')
-        .setDescription('Dispara um roast passivo imediatamente')
-        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuário alvo preferencial'))
-        .addIntegerOption((opt) =>
-          opt
-            .setName('contexto')
-            .setDescription('Mensagens mínimas para compor o contexto')
-            .setMinValue(1)
-            .setMaxValue(20)
-        )
-        .addChannelOption((opt) =>
-          opt
-            .setName('canal')
-            .setDescription('Canal alvo')
-            .addChannelTypes(
-              ChannelType.GuildText,
-              ChannelType.GuildAnnouncement,
-              ChannelType.PublicThread,
-              ChannelType.PrivateThread,
-              ChannelType.AnnouncementThread
-            )
-        )
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('intervalo')
-        .setDescription('Define o intervalo de mensagens para o modo passivo')
-        .addIntegerOption((opt) =>
-          opt
-            .setName('valor')
-            .setDescription('Mensagens até disparar um roast')
-            .setMinValue(1)
-            .setMaxValue(100)
-        )
-        .addBooleanOption((opt) =>
-          opt.setName('resetar').setDescription('Voltar para o padrão global')
-        )
-        .addChannelOption((opt) =>
-          opt
-            .setName('canal')
-            .setDescription('Canal a configurar')
-            .addChannelTypes(
-              ChannelType.GuildText,
-              ChannelType.GuildAnnouncement,
-              ChannelType.PublicThread,
-              ChannelType.PrivateThread,
-              ChannelType.AnnouncementThread
-            )
+    .setName('updatecontext')
+    .setDescription('Reconstrói o contexto (3k tokens) para você ou outro usuário.')
+    .addUserOption((option) => option.setName('usuario').setDescription('Usuário alvo'))
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('personality')
+    .setDescription('Consulta ou altera a personalidade global do servidor.')
+    .addStringOption((option) => {
+      option.setName('tipo').setDescription('Nova personalidade para o servidor');
+      PERSONALITY_CHOICES.forEach((choice) => option.addChoices({ name: choice.name, value: choice.value }));
+      return option;
+    })
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('language')
+    .setDescription('Consulta ou altera o idioma usado nas respostas do bot.')
+    .addStringOption((option) => {
+      option.setName('idioma').setDescription('Novo idioma para o servidor');
+      LANGUAGE_CHOICES.forEach((choice) => option.addChoices({ name: choice.name, value: choice.value }));
+      return option;
+    })
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('forcemessageevent')
+    .setDescription('Força um disparo do modo passivo no canal escolhido.')
+    .addChannelOption((option) =>
+      option
+        .setName('canal')
+        .setDescription('Canal onde o roast será enviado')
+        .addChannelTypes(
+          ChannelType.GuildText,
+          ChannelType.GuildAnnouncement,
+          ChannelType.PublicThread,
+          ChannelType.PrivateThread,
+          ChannelType.AnnouncementThread
         )
     )
-    .addSubcommand((sub) =>
-      sub
-        .setName('status')
-        .setDescription('Mostra o intervalo configurado para o modo passivo')
-        .addChannelOption((opt) =>
-          opt
-            .setName('canal')
-            .setDescription('Canal a inspecionar')
-            .addChannelTypes(
-              ChannelType.GuildText,
-              ChannelType.GuildAnnouncement,
-              ChannelType.PublicThread,
-              ChannelType.PrivateThread,
-              ChannelType.AnnouncementThread
-            )
-        )
+    .addUserOption((option) => option.setName('usuario').setDescription('Usuário preferencial para ser alvo'))
+    .addIntegerOption((option) =>
+      option
+        .setName('contexto')
+        .setDescription('Mensagens mínimas para coletar antes do roast')
+        .setMinValue(1)
+        .setMaxValue(30)
     )
     .toJSON()
 ];
 
-async function main() {
-  const rest = new REST({ version: '10' }).setToken(discordToken);
-  await rest.put(Routes.applicationGuildCommands(discordAppId, allowedGuildId), {
-    body: commands
-  });
-  console.log('✅ Slash commands registrados no guild.');
+export async function registerGuildCommands(options: { skipIfMissingEnv?: boolean } = {}) {
+  const { skipIfMissingEnv = false } = options;
+  const discordAppId = config.discordAppId;
+  const allowedGuildId = config.allowedGuildId;
+
+  if (skipIfMissingEnv && (!discordAppId || !allowedGuildId)) {
+    log.warn('Skipping slash command registration: DISCORD_APP_ID or ALLOWED_GUILD_ID missing.');
+    return;
+  }
+
+  const appId = requireEnv(discordAppId, 'DISCORD_APP_ID');
+  const guildId = requireEnv(allowedGuildId, 'ALLOWED_GUILD_ID');
+  const rest = new REST({ version: '10' }).setToken(requireEnv(config.discordToken, 'DISCORD_TOKEN'));
+
+  await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: slashCommands });
+  log.info({ guildId }, 'slash commands registered');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  registerGuildCommands()
+    .then(() => {
+      console.log('✅ Slash commands registrados no guild.');
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+}

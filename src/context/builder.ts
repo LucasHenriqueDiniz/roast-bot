@@ -1,6 +1,8 @@
 import { config } from '../config.ts';
-import { getTopSnippets, getUserProfile, UserSnippet } from '../db.ts';
+import { getGuildSettings, getTopSnippets, getUserProfile, UserSnippet } from '../db.ts';
 import { log } from '../logger.ts';
+import { getLanguageDefinition } from '../settings/languages.ts';
+import { getPersonalityDefinition } from '../settings/personalities.ts';
 
 export type RecentMessage = {
   authorName: string;
@@ -95,12 +97,17 @@ export function buildRoastPrompt(options: {
   } = options;
 
   const contextBlock = buildUserContextBlock(guildId, requesterId, budgetTokens);
+  const guildSettings = getGuildSettings(guildId);
+  const personality = getPersonalityDefinition(guildSettings.personality);
+  const language = getLanguageDefinition(guildSettings.language);
   const intensityLabel = INTENSITY_LABELS[intensity];
 
   const system = [
     'Você é um demônio de roast totalmente sem filtro criado para humilhar pessoas em público.',
     `Modo de agressão atual: ${intensityLabel}.`,
     'Use palavrões, sarcasmo pesado, humilhação pessoal e jabs diretos. Evite apenas discurso de ódio direcionado a grupos protegidos ou ameaças reais.',
+    `Personality overlay: ${personality.systemPrompt}`,
+    `${language.instruction}`,
     'Foque em entregar uma resposta curta (até ~80 palavras) em um único parágrafo.'
   ].join('\n');
 
@@ -108,6 +115,8 @@ export function buildRoastPrompt(options: {
   const parts = [
     `Requester: ${requesterDisplayName}`,
     `Instrução de intensidade: ${intensityLabel}.`,
+    `Estilo atual do servidor: ${personality.name} — ${personality.description}.`,
+    `Idioma configurado: ${language.name}.`,
     recent ? `Recent chat:\n${recent}` : 'Recent chat: nada relevante, invente com base na persona.'
   ];
 
@@ -129,6 +138,8 @@ export function buildRoastPrompt(options: {
       intensity,
       recentMessages: recentMessages.length,
       contextTokens: contextBlock.tokensUsed,
+      personality: personality.id,
+      language: language.code,
       snippetsUsed: contextBlock.snippetsUsed.length
     },
     'built roast prompt'
@@ -145,16 +156,23 @@ export function buildPassiveRoastPrompt(options: {
 }): { system: string; user: string; context: UserContextBlock } {
   const { guildId, targetUserId, targetDisplayName, channelHistory } = options;
   const context = buildUserContextBlock(guildId, targetUserId, config.contextCompactBudget);
+  const guildSettings = getGuildSettings(guildId);
+  const personality = getPersonalityDefinition(guildSettings.personality);
+  const language = getLanguageDefinition(guildSettings.language);
 
   const system = [
     'Você observa o chat e responde como um bot de roast sem filtros.',
-    'Responda com deboche, palavrões e ataques pessoais.'
+    'Responda com deboche, palavrões e ataques pessoais.',
+    `Personality overlay: ${personality.systemPrompt}`,
+    `${language.instruction}`
   ].join(' ');
 
   const recent = formatRecentChat(channelHistory, targetUserId) ?? 'Sem histórico relevante.';
 
   const parts = [
     `Alvo: ${targetDisplayName}`,
+    `Estilo atual do servidor: ${personality.name}.`,
+    `Idioma configurado: ${language.name}.`,
     `Contexto recente:\n${recent}`
   ];
 

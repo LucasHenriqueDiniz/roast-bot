@@ -2,6 +2,8 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { config } from './config.ts';
+import { DEFAULT_LANGUAGE_CODE } from './settings/languages.ts';
+import { DEFAULT_PERSONALITY_ID } from './settings/personalities.ts';
 
 const dbFile = resolve(config.dbPath);
 mkdirSync(dirname(dbFile), { recursive: true });
@@ -49,6 +51,13 @@ CREATE TABLE IF NOT EXISTS users (
   style TEXT DEFAULT 'witty',
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (guild_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS guild_settings (
+  guild_id TEXT PRIMARY KEY,
+  personality TEXT NOT NULL DEFAULT '${DEFAULT_PERSONALITY_ID}',
+  language TEXT NOT NULL DEFAULT '${DEFAULT_LANGUAGE_CODE}',
+  updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS channel_settings (
@@ -142,6 +151,25 @@ const pruneSnippetsStmt = db.prepare<[
   { guildId: string; userId: string; minScore: number }
 ]>(
   `DELETE FROM user_snippets WHERE guild_id = @guildId AND user_id = @userId AND score < @minScore`
+);
+
+const getGuildSettingsStmt = db.prepare<[
+  { guildId: string }
+], { personality: string; language: string; updated_at: number } | undefined>(
+  `SELECT personality, language, updated_at
+   FROM guild_settings
+   WHERE guild_id = @guildId`
+);
+
+const upsertGuildSettingsStmt = db.prepare<[
+  { guildId: string; personality: string; language: string; updatedAt: number }
+]>(
+  `INSERT INTO guild_settings (guild_id, personality, language, updated_at)
+   VALUES (@guildId, @personality, @language, @updatedAt)
+   ON CONFLICT(guild_id) DO UPDATE SET
+     personality = excluded.personality,
+     language = excluded.language,
+     updated_at = excluded.updated_at`
 );
 
 const getChannelSettingsStmt = db.prepare<[
@@ -311,6 +339,52 @@ export function decaySnippets(guildId: string, userId: string, factor: number) {
 
 export function pruneSnippets(guildId: string, userId: string, minScore: number) {
   pruneSnippetsStmt.run({ guildId, userId, minScore });
+}
+
+export type GuildSettings = {
+  guildId: string;
+  personality: string;
+  language: string;
+  updatedAt: number;
+};
+
+export function getGuildSettings(guildId: string): GuildSettings {
+  const row = getGuildSettingsStmt.get({ guildId });
+  if (!row) {
+    return {
+      guildId,
+      personality: DEFAULT_PERSONALITY_ID,
+      language: DEFAULT_LANGUAGE_CODE,
+      updatedAt: 0
+    };
+  }
+
+  return {
+    guildId,
+    personality: row.personality ?? DEFAULT_PERSONALITY_ID,
+    language: row.language ?? DEFAULT_LANGUAGE_CODE,
+    updatedAt: row.updated_at ?? 0
+  };
+}
+
+export function setGuildPersonality(guildId: string, personality: string, updatedAt = Date.now()) {
+  const current = getGuildSettings(guildId);
+  upsertGuildSettingsStmt.run({
+    guildId,
+    personality,
+    language: current.language,
+    updatedAt
+  });
+}
+
+export function setGuildLanguage(guildId: string, language: string, updatedAt = Date.now()) {
+  const current = getGuildSettings(guildId);
+  upsertGuildSettingsStmt.run({
+    guildId,
+    personality: current.personality,
+    language,
+    updatedAt
+  });
 }
 
 export function getChannelPassiveInterval(
