@@ -6,7 +6,7 @@ const envSchema = z.object({
   DISCORD_APP_ID: z.string().optional(),
   ALLOWED_GUILD_ID: z.string().optional(),
   OLLAMA_HOST: z.string().default('http://127.0.0.1:11434'),
-  MODEL: z.string().default('gemma3:4b'),
+  MODEL: z.string().default('qwen2.5:3b'),
   LLM_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
   LLM_RETRY_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(90_000).default(22_000),
   PASSIVE_INTERVAL: z.coerce.number().int().min(1).default(10),
