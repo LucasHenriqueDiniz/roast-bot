@@ -50,6 +50,19 @@ const STOP_WORDS = new Set([
   'pdf'
 ]);
 
+const PHRASE_REWRITES: [RegExp, string][] = [
+  [/dockercompose/g, 'docker compose'],
+  [/ensino medio/g, 'ensino médio'],
+  [/varwwwhtml/g, 'var/www/html'],
+  [/mongodb/g, 'mongo db'],
+  [/postgress?/g, 'postgres'],
+  [/fullstack/g, 'full stack'],
+  [/frontend/g, 'front-end'],
+  [/backend/g, 'back-end'],
+  [/apiendpoint/g, 'api endpoint'],
+  [/discordserver/g, 'discord server']
+];
+
 const EMOJI_REGEX = /\p{Extended_Pictographic}/gu;
 const PERSONAL_STATEMENT_REGEX = /(\b(eu|tô|to|sou|fui|vou|meu|minha|tenho|preciso|quero|acho|prometo|admito|i\s*am|i\s*feel|i\s*need|i\s*hate|i\s*love)\b)/i;
 
@@ -141,15 +154,17 @@ export function extractHeuristics(messages: StoredMessage[]): HeuristicSnapshot 
 
   return {
     messageCount,
-    obsessions: pickTopWithMin(wordCounts, 20, 2).filter((word) => word.length > 3).slice(0, 8),
-    catchphrases: prettifyCatchphrases(
-      dedupe([...pickTopWithMin(bigramCounts, 10, 2), ...pickTopWithMin(trigramCounts, 8, 2)])
-    ),
+    obsessions: deriveTopics(wordCounts, bigramCounts, trigramCounts),
+    catchphrases: deriveCatchphrases(bigramCounts, trigramCounts),
     emojiRank: pickTopWithMin(emojiCounts, 6, 2),
     typoHighlights: pickTopWithMin(typoCounts, 6, 2),
     laughPatterns: pickTopWithMin(laughCounts, 5, 2),
     activeHours: formatActiveHours(hourBuckets),
-    personalClaims: personalClaims.slice(0, 6)
+    personalClaims: personalClaims
+      .map((claim) => cleanPhrase(claim))
+      .filter((claim): claim is string => Boolean(claim))
+      .slice(0, 6)
+      .map((claim) => clampSentence(claim))
   };
 }
 
@@ -208,14 +223,120 @@ function truncateSentence(input: string, maxLength: number): string | null {
 }
 
 function prettifyCatchphrases(phrases: string[]): string[] {
-  return phrases
-    .map((phrase) => {
-      const parts = phrase.split(' ');
-      if (parts.length <= 1) return phrase;
-      if (parts.every((part) => part === parts[0])) {
-        return `${parts[0]}`;
-      }
-      return phrase;
-    })
-    .filter((phrase, idx, arr) => phrase && arr.indexOf(phrase) === idx);
+  const cleaned = phrases
+    .map((phrase) => cleanPhrase(phrase))
+    .filter((phrase): phrase is string => Boolean(phrase));
+
+  const deduped = cleaned.filter((phrase, idx) => cleaned.indexOf(phrase) === idx);
+
+  return deduped.slice(0, 6);
+}
+
+function deriveTopics(
+  words: Map<string, number>,
+  bigrams: Map<string, number>,
+  trigrams: Map<string, number>
+): string[] {
+  const scores = new Map<string, number>();
+
+  for (const [ngram, count] of bigrams.entries()) {
+    if (count < 2) continue;
+    const cleaned = cleanPhrase(ngram);
+    if (!cleaned) continue;
+    scores.set(cleaned, Math.max(scores.get(cleaned) ?? 0, count * 2));
+  }
+
+  for (const [ngram, count] of trigrams.entries()) {
+    if (count < 2) continue;
+    const cleaned = cleanPhrase(ngram);
+    if (!cleaned) continue;
+    scores.set(cleaned, Math.max(scores.get(cleaned) ?? 0, count * 2.5));
+  }
+
+  for (const [word, count] of words.entries()) {
+    if (count < 3) continue;
+    const cleaned = cleanWord(word);
+    if (!cleaned) continue;
+    if (scores.has(cleaned)) {
+      scores.set(cleaned, (scores.get(cleaned) ?? 0) + count * 0.5);
+    } else {
+      scores.set(cleaned, count);
+    }
+  }
+
+  const sorted = [...scores.entries()]
+    .filter(([topic]) => topic.split(' ').length <= 4)
+    .sort((a, b) => b[1] - a[1])
+    .map(([topic]) => topic);
+
+  return dedupe(sorted).slice(0, 6);
+}
+
+function deriveCatchphrases(bigrams: Map<string, number>, trigrams: Map<string, number>): string[] {
+  const scores = new Map<string, number>();
+
+  for (const [phrase, count] of bigrams.entries()) {
+    if (count < 2) continue;
+    const cleaned = cleanPhrase(phrase);
+    if (!cleaned || cleaned.length < 6) continue;
+    scores.set(cleaned, Math.max(scores.get(cleaned) ?? 0, count * 1.5));
+  }
+
+  for (const [phrase, count] of trigrams.entries()) {
+    if (count < 2) continue;
+    const cleaned = cleanPhrase(phrase);
+    if (!cleaned || cleaned.length < 6) continue;
+    scores.set(cleaned, Math.max(scores.get(cleaned) ?? 0, count * 1.8));
+  }
+
+  return dedupe(
+    [...scores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([phrase]) => clampSentence(phrase))
+  ).slice(0, 8);
+}
+
+function cleanWord(word: string): string | null {
+  const normalized = cleanPhrase(word);
+  if (!normalized) return null;
+  if (normalized.length > 16) return null;
+  if (!/[aeiouáéíóúâêôãõ]/i.test(normalized)) return null;
+  return normalized;
+}
+
+function cleanPhrase(phrase: string): string | null {
+  if (!phrase) return null;
+  const normalized = phrase
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return null;
+
+  let refined = normalized;
+
+  for (const [pattern, replacement] of PHRASE_REWRITES) {
+    refined = refined.replace(pattern, replacement);
+  }
+
+  refined = refined.replace(/\s{2,}/g, ' ').trim();
+
+  if (!/[aeiouáéíóúâêôãõ]/i.test(refined)) return null;
+  if (refined.length < 3) return null;
+  if (refined.length > 60) return null;
+
+  const words = refined.split(' ');
+  if (words.length > 1 && words.every((piece) => piece === words[0])) {
+    return words[0];
+  }
+  if (words.every((piece) => STOP_WORDS.has(piece))) return null;
+  if (words.some((piece) => piece.length > 18)) return null;
+
+  return refined;
+}
+
+function clampSentence(sentence: string, limit = 160): string {
+  if (sentence.length <= limit) return sentence;
+  return `${sentence.slice(0, limit - 1)}…`;
 }

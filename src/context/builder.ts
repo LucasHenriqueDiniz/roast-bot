@@ -36,7 +36,7 @@ export function buildUserContextBlock(
 
   const summary = profile.summary.trim();
   const quirks = safeParseStringArray(profile.quirksJson).slice(0, 12);
-  const snippets = getTopSnippets(guildId, userId, config.contextSnippetLimit * 2);
+  const snippets = getTopSnippets(guildId, userId, config.contextSnippetLimit * 2).filter(shouldKeepSnippet);
 
   let remaining = budgetTokens;
   const sections: string[] = [];
@@ -64,7 +64,7 @@ export function buildUserContextBlock(
   }
 
   if (snippets.length && remaining > 0) {
-    for (const snippet of snippets) {
+    for (const snippet of snippets.slice(0, config.contextSnippetLimit)) {
       const formatted = formatSnippet(snippet);
       const used = estimateTokens(formatted);
       if (used > remaining) break;
@@ -201,6 +201,15 @@ function formatRecentChat(messages: RecentMessage[], focusUserId: string): strin
 function formatSnippet(snippet: UserSnippet): string {
   const tagText = snippet.tags.length ? snippet.tags.join(', ') : 'sem tags dignas';
   return `Munição (${tagText}): "${sanitize(snippet.excerpt)}"`;
+}
+
+function shouldKeepSnippet(snippet: UserSnippet): boolean {
+  if (!snippet.excerpt) return false;
+  if (snippet.excerpt.includes('[REDACTED]')) return false;
+  const compact = snippet.excerpt.replace(/\s+/g, '');
+  if (compact.length < 30) return false;
+  if (!/[aeiouáéíóúâêôãõ]/i.test(snippet.excerpt)) return false;
+  return true;
 }
 
 function safeParseStringArray(input: string): string[] {

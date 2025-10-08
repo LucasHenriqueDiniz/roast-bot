@@ -26,31 +26,35 @@ export function composeProfileSummary(
   const summaryParts: string[] = [];
 
   if (obsessions.length) {
-    summaryParts.push(`${label} é obcecado por ${formatList(obsessions.slice(0, 3))}.`);
+    summaryParts.push(`${label} tem fixação doentia por ${formatList(obsessions.slice(0, 3))}.`);
   }
 
   if (catchphrases.length) {
-    summaryParts.push(`Fala como disco riscado, jogando ${formatQuotedList(catchphrases.slice(0, 3))} em qualquer assunto.`);
+    summaryParts.push(`Vive repetindo ${formatQuotedList(catchphrases.slice(0, 2))} como se fosse mantra.`);
+  }
+
+  if (personalClaims.length) {
+    summaryParts.push(`Já admitiu sem pudor: ${formatQuotedList(personalClaims.slice(0, 1))}.`);
   }
 
   if (emojiRank.length) {
-    summaryParts.push(`Assina tudo com ${formatList(emojiRank.slice(0, 3))}, como se emoji fosse pontuação.`);
+    summaryParts.push(`Assina cada drama com ${formatList(emojiRank.slice(0, 2))}.`);
   }
 
   if (activeHours.length) {
-    summaryParts.push(`Aparece nos horários ${formatActiveWindow(activeHours)}, como vampiro sem CLT.`);
+    summaryParts.push(`Surge no chat em horários de ${formatActiveWindow(activeHours)}, como se não existisse relógio biológico.`);
   }
 
-  const summary = clampText(summaryParts.slice(0, 3).join(' '), 900);
+  const summary = clampText(summaryParts.slice(0, 3).join(' '), 600);
 
   const quirks: string[] = [];
 
-  for (const phrase of catchphrases.slice(0, 4)) {
-    quirks.push(`Muleta verbal: "${phrase}"`);
+  for (const obsession of obsessions.slice(0, 4)) {
+    quirks.push(`Obsessão recorrente: ${obsession}`);
   }
 
-  for (const obsession of obsessions.slice(0, 4)) {
-    quirks.push(`Obcecado por ${obsession}`);
+  for (const phrase of catchphrases.slice(0, 4)) {
+    quirks.push(`Catchphrase eterna: "${phrase}"`);
   }
 
   if (emojiRank.length) {
@@ -58,15 +62,15 @@ export function composeProfileSummary(
   }
 
   if (typoHighlights.length) {
-    quirks.push(`Digita ${formatList(typoHighlights.slice(0, 3))} como se estivesse possuído.`);
+    quirks.push(`Digita ${formatList(typoHighlights.slice(0, 2))} achando que é idioma.`);
   }
 
   if (laughPatterns.length) {
-    quirks.push(`Quando ri, solta ${formatList(laughPatterns.slice(0, 3))}.`);
+    quirks.push(`Quando ri, sai ${formatList(laughPatterns.slice(0, 2))}.`);
   }
 
   for (const claim of personalClaims.slice(0, 2)) {
-    quirks.push(`Admite: "${claim}"`);
+    quirks.push(`Confissão guardada: "${claim}"`);
   }
 
   if (!quirks.length) {
@@ -83,7 +87,12 @@ function formatList(list: string[]): string {
 }
 
 function formatQuotedList(list: string[]): string {
-  return list.map((item) => `"${item}"`).join(', ');
+  if (!list.length) return '';
+  if (list.length === 1) return `"${list[0]}"`;
+  return `${list
+    .slice(0, -1)
+    .map((item) => `"${item}"`)
+    .join(', ')} e "${list[list.length - 1]}"`;
 }
 
 function formatActiveWindow(hours: string[]): string {
