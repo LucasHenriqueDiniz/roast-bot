@@ -16,6 +16,7 @@
   "packageManager": "pnpm@10.16.1",
   "dependencies": {
     "bad-words": "^4.0.0",
+    "better-sqlite3": "^12.4.1",
     "discord.js": "^14.22.1",
     "dotenv": "^17.2.3",
     "p-limit": "^7.1.1",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/bad-words": "^3.0.3",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.7.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
