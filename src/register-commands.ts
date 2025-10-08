@@ -23,6 +23,31 @@ const commands = [
     .addIntegerOption((o) =>
       o.setName('contexto').setDescription('Mensagens recentes para contexto (0–15)').setMinValue(0).setMaxValue(15)
     )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('contexto')
+    .setDescription('Gerencia o contexto individual dos roasts')
+    .addSubcommand((sub) =>
+      sub
+        .setName('atualizar')
+        .setDescription('Força a reconstrução do contexto do usuário alvo')
+        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuário alvo'))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('mostrar')
+        .setDescription('Mostra o contexto salvo para inspeção')
+        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuário alvo'))
+        .addStringOption((opt) =>
+          opt
+            .setName('budget')
+            .setDescription('Escolha o tamanho do contexto')
+            .addChoices(
+              { name: 'compacto (~1k tokens)', value: 'compacto' },
+              { name: 'expandido (~3k tokens)', value: 'expandido' }
+            )
+        )
+    )
     .toJSON()
 ];
 
