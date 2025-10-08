@@ -1,10 +1,4 @@
-import {
-  Client,
-  GatewayIntentBits,
-  Message,
-  MessageFlags,
-  Partials
-} from 'discord.js';
+import { Client, Events, GatewayIntentBits, Message, Partials } from 'discord.js';
 import pino from 'pino';
 import { request } from 'undici';
 import { config } from './config.js';
@@ -54,24 +48,26 @@ const client = new Client({
 
 const channelStates = new Map<string, ChannelState>();
 
-client.once('clientReady', () => log.info(`Logged in as ${client.user?.tag}`));
+client.once(Events.ClientReady, (readyClient) =>
+  log.info(`Logged in as ${readyClient.user.tag}`)
+);
 
 client.on('interactionCreate', async (itx) => {
   try {
     if (!itx.isChatInputCommand()) return;
     if (config.allowedGuildId && itx.guildId !== config.allowedGuildId) {
-      return itx.reply({ content: 'Servidor não autorizado.', flags: MessageFlags.Ephemeral });
+      return itx.reply({ content: 'Servidor não autorizado.', ephemeral: true });
     }
 
     if (itx.commandName === 'ping') {
-      return itx.reply({ content: 'Pong!', flags: MessageFlags.Ephemeral });
+      return itx.reply({ content: 'Pong!', ephemeral: true });
     }
 
     if (itx.commandName === 'roastme') {
       const intensidade = (itx.options.getInteger('intensidade') ?? 1) as 0 | 1 | 2;
       const contexto = Math.min(Math.max(itx.options.getInteger('contexto') ?? 5, 0), 15);
 
-      await itx.deferReply({ flags: MessageFlags.Ephemeral });
+      await itx.deferReply({ ephemeral: true });
 
       let history = '';
       if (
@@ -93,8 +89,9 @@ client.on('interactionCreate', async (itx) => {
         'Avoid slurs/harassment/violence. Keep it under ~80 words.'
       ].join('\n');
 
-      const longTermContext =
-        itx.guildId && getUserContext(itx.guildId, itx.user.id);
+      const longTermContext = itx.guildId
+        ? getUserContext(itx.guildId, itx.user.id)
+        : null;
 
       const userPrompt = [
         `Requester: ${itx.user.username}`,
@@ -119,7 +116,7 @@ client.on('interactionCreate', async (itx) => {
       if (itx.deferred || itx.replied) {
         await itx.editReply(response).catch(() => {});
       } else {
-        await itx.reply({ content: response, flags: MessageFlags.Ephemeral }).catch(() => {});
+        await itx.reply({ content: response, ephemeral: true }).catch(() => {});
       }
     }
   }
