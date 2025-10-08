@@ -67,7 +67,7 @@ client.on('interactionCreate', async (itx) => {
       const intensidade = (itx.options.getInteger('intensidade') ?? 1) as 0 | 1 | 2;
       const contexto = Math.min(Math.max(itx.options.getInteger('contexto') ?? 5, 0), 15);
 
-      await itx.deferReply({ ephemeral: true });
+      await itx.deferReply();
 
       let history = '';
       if (
@@ -89,18 +89,28 @@ client.on('interactionCreate', async (itx) => {
         'Avoid slurs/harassment/violence. Keep it under ~80 words.'
       ].join('\n');
 
-      const longTermContext = itx.guildId
-        ? getUserContext(itx.guildId, itx.user.id)
-        : null;
+      let longTermContext: string | null = null;
+      if (itx.guildId) {
+        try {
+          longTermContext = getUserContext(itx.guildId, itx.user.id);
+        } catch (error) {
+          log.warn({ err: error }, 'failed to load user context');
+          longTermContext = null;
+        }
+      }
 
-      const userPrompt = [
+      const userPromptParts = [
         `Requester: ${itx.user.username}`,
-        history ? `Recent chat:\n${history}` : 'No recent chat provided.',
-        longTermContext ? `User context:\n${longTermContext}` : 'No stored context for this user.',
-        'Craft a single roast reply addressed to the requester.'
-      ]
-        .filter(Boolean)
-        .join('\n\n');
+        history ? `Recent chat:\n${history}` : 'No recent chat provided.'
+      ];
+      if (longTermContext) {
+        userPromptParts.push(`User context:\n${longTermContext}`);
+      } else {
+        userPromptParts.push('No stored context for this user.');
+      }
+      userPromptParts.push('Craft a single roast reply addressed to the requester.');
+
+      const userPrompt = userPromptParts.join('\n\n');
 
       const reply = await chatOllama(
         [{ role: 'system', content: system }, { role: 'user', content: userPrompt }],
@@ -161,21 +171,27 @@ client.on('messageCreate', async (message) => {
 async function generatePassiveRoast(message: Message, buffer: ChannelMessage[]) {
   if (!buffer.length) return null;
 
+  const guildId = message.guildId;
+  if (!guildId) return null;
+
   const last = buffer[buffer.length - 1];
   const history = buffer.map((entry) => `${entry.username}: ${entry.content}`).join('\n');
 
   const uniqueUserIds = [...new Set(buffer.map((entry) => entry.userId))];
-  const longTermContext = message.guildId
-    ? uniqueUserIds
-        .map((id) => {
-          const ctx = getUserContext(message.guildId!, id);
-          if (!ctx) return null;
-          const username = buffer.find((entry) => entry.userId === id)?.username;
-          return username ? `Context for ${username}: ${ctx}` : null;
-        })
-        .filter(Boolean)
-        .join('\n')
-    : null;
+  const longTermContext = uniqueUserIds
+    .map((id) => {
+      try {
+        const ctx = getUserContext(guildId, id);
+        if (!ctx) return null;
+        const username = buffer.find((entry) => entry.userId === id)?.username;
+        return username ? `Context for ${username}: ${ctx}` : null;
+      } catch (error) {
+        log.warn({ err: error, userId: id }, 'failed to load passive context');
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .join('\n') || null;
 
   const systemPrompt = [
     'You are a playful Discord bot that delivers witty roasts based on the conversation context.',
