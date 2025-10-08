@@ -1,4 +1,11 @@
-import { Client, Events, GatewayIntentBits, Message, Partials } from 'discord.js';
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  Message,
+  MessageFlags,
+  Partials
+} from 'discord.js';
 import pino from 'pino';
 import { request } from 'undici';
 import { config } from './config.js';
@@ -25,7 +32,12 @@ async function chatOllama(
   const { body, statusCode } = await request(`${config.ollamaHost}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.model, messages, options: { temperature } })
+    body: JSON.stringify({
+      model: config.model,
+      stream: false,
+      messages,
+      options: { temperature }
+    })
   });
 
   if (statusCode < 200 || statusCode >= 300) {
@@ -33,7 +45,16 @@ async function chatOllama(
     throw new Error(`Ollama responded ${statusCode}: ${errorText}`);
   }
 
-  const json: any = await body.json();
+  const raw = await body.text();
+
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch (error) {
+    const snippet = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+    throw new Error(`Failed to parse Ollama response: ${snippet}`);
+  }
+
   return json?.message?.content?.trim() ?? '';
 }
 
@@ -56,11 +77,14 @@ client.on('interactionCreate', async (itx) => {
   try {
     if (!itx.isChatInputCommand()) return;
     if (config.allowedGuildId && itx.guildId !== config.allowedGuildId) {
-      return itx.reply({ content: 'Servidor não autorizado.', ephemeral: true });
+      return itx.reply({
+        content: 'Servidor não autorizado.',
+        flags: MessageFlags.Ephemeral
+      });
     }
 
     if (itx.commandName === 'ping') {
-      return itx.reply({ content: 'Pong!', ephemeral: true });
+      return itx.reply({ content: 'Pong!', flags: MessageFlags.Ephemeral });
     }
 
     if (itx.commandName === 'roastme') {
@@ -70,18 +94,16 @@ client.on('interactionCreate', async (itx) => {
       await itx.deferReply();
 
       let history = '';
-      if (
-        contexto > 0 &&
-        itx.channel &&
-        itx.channel.isTextBased() &&
-        'messages' in itx.channel
-      ) {
-        const msgs = await itx.channel.messages.fetch({ limit: contexto });
-        const arr = [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-        history = arr
-          .map((m) => `${m.author.username}: ${sanitizeForPrompt(m.cleanContent)}`)
-          .filter(Boolean)
-          .join('\n');
+      if (contexto > 0 && itx.channel?.isTextBased()) {
+        const channel = itx.channel;
+        if ('messages' in channel && typeof channel.messages?.fetch === 'function') {
+          const msgs = await channel.messages.fetch({ limit: contexto });
+          const arr = [...msgs.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+          history = arr
+            .map((m) => `${m.author.username}: ${sanitizeForPrompt(m.cleanContent)}`)
+            .filter(Boolean)
+            .join('\n');
+        }
       }
 
       const system = [
@@ -126,7 +148,7 @@ client.on('interactionCreate', async (itx) => {
       if (itx.deferred || itx.replied) {
         await itx.editReply(response).catch(() => {});
       } else {
-        await itx.reply({ content: response, ephemeral: true }).catch(() => {});
+        await itx.reply({ content: response, flags: MessageFlags.Ephemeral }).catch(() => {});
       }
     }
   }
@@ -174,19 +196,26 @@ async function generatePassiveRoast(message: Message, buffer: ChannelMessage[]) 
   const guildId = message.guildId;
   if (!guildId) return null;
 
-  const last = buffer[buffer.length - 1];
+  const last = buffer.at(-1);
+  if (!last) return null;
+
   const history = buffer.map((entry) => `${entry.username}: ${entry.content}`).join('\n');
 
-  const uniqueUserIds = [...new Set(buffer.map((entry) => entry.userId))];
-  const longTermContext = uniqueUserIds
-    .map((id) => {
+  const displayNamesByUser = new Map<string, string>();
+  for (const entry of buffer) {
+    if (!displayNamesByUser.has(entry.userId)) {
+      displayNamesByUser.set(entry.userId, entry.username);
+    }
+  }
+
+  const longTermContext = [...displayNamesByUser.entries()]
+    .map(([userId, username]) => {
       try {
-        const ctx = getUserContext(guildId, id);
+        const ctx = getUserContext(guildId, userId);
         if (!ctx) return null;
-        const username = buffer.find((entry) => entry.userId === id)?.username;
-        return username ? `Context for ${username}: ${ctx}` : null;
+        return `Context for ${username}: ${ctx}`;
       } catch (error) {
-        log.warn({ err: error, userId: id }, 'failed to load passive context');
+        log.warn({ err: error, userId }, 'failed to load passive context');
         return null;
       }
     })
