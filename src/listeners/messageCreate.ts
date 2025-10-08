@@ -1,6 +1,7 @@
 import { Message, TextBasedChannel } from 'discord.js';
 import { buildPassiveRoastPrompt, RecentMessage } from '../context/builder.ts';
 import { ingestMessage } from '../context/ingest.ts';
+import { isLikelyNoise } from '../context/filters.ts';
 import { config } from '../config.ts';
 import { chat, LLMRequestError, LLMTimeoutError } from '../llm.ts';
 import { log } from '../logger.ts';
@@ -24,6 +25,7 @@ export async function onMessageCreate(message: Message) {
 
   const clean = message.cleanContent?.trim();
   if (!clean) return;
+  if (isLikelyNoise(clean)) return;
 
   ingestMessage({
     guildId: message.guildId,

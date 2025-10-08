@@ -1,6 +1,7 @@
 import { Guild, TextBasedChannel } from 'discord.js';
 import { config } from '../config.ts';
 import { ingestMessage } from './ingest.ts';
+import { isLikelyNoise } from './filters.ts';
 import { log } from '../logger.ts';
 
 export type BackfillResult = {
@@ -66,6 +67,7 @@ async function backfillFromChannel(params: {
       if (message.author.id !== userId) continue;
       const clean = message.cleanContent?.trim();
       if (!clean) continue;
+      if (isLikelyNoise(clean)) continue;
 
       ingestMessage(
         {

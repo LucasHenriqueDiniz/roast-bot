@@ -16,6 +16,15 @@ export function composeProfileSummary(
   const sentences: string[] = [];
 
   const label = displayName ? `${displayName}` : 'Esse usuário';
+
+  if (!totalMessages) {
+    sentences.push(`${label} ainda não deixou nada digno de arquivo. Assim que surgir material, eu guardo.`);
+    return {
+      summary: sentences.join(' '),
+      quirks: ['Ainda estamos coletando munição.']
+    };
+  }
+
   sentences.push(
     `${label} deixou ${totalMessages} mensagens recentes com média de ${Math.round(averageLength)} caracteres, sempre pingando no chat com a sutileza de um caminhão sem freio.`
   );

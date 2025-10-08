@@ -1,4 +1,5 @@
 import { StoredMessage } from '../db.ts';
+import { filterMeaningfulMessages, sanitizeToken } from './filters.ts';
 
 const STOP_WORDS = new Set([
   'a',
@@ -33,7 +34,15 @@ const STOP_WORDS = new Set([
   'tem',
   'tá',
   'ta',
-  'isso'
+  'isso',
+  'http',
+  'https',
+  'www',
+  'com',
+  'discord',
+  'jpg',
+  'png',
+  'pdf'
 ]);
 
 const EMOJI_REGEX = /\p{Extended_Pictographic}/gu;
@@ -51,6 +60,22 @@ export type HeuristicSnapshot = {
 };
 
 export function extractHeuristics(messages: StoredMessage[]): HeuristicSnapshot {
+  const considered = filterMeaningfulMessages(messages);
+
+  if (!considered.length) {
+    return {
+      totalMessages: 0,
+      averageLength: 0,
+      topWords: [],
+      catchphrases: [],
+      topics: [],
+      emojiRank: [],
+      typoHighlights: [],
+      laughPatterns: [],
+      activeHours: []
+    };
+  }
+
   const wordCounts = new Map<string, number>();
   const bigramCounts = new Map<string, number>();
   const trigramCounts = new Map<string, number>();
@@ -61,7 +86,7 @@ export function extractHeuristics(messages: StoredMessage[]): HeuristicSnapshot 
 
   let totalLength = 0;
 
-  for (const message of messages) {
+  for (const message of considered) {
     const content = message.content ?? '';
     totalLength += content.length;
 
@@ -100,7 +125,7 @@ export function extractHeuristics(messages: StoredMessage[]): HeuristicSnapshot 
     hourBuckets.set(hour, (hourBuckets.get(hour) ?? 0) + 1);
   }
 
-  const totalMessages = messages.length;
+  const totalMessages = considered.length;
   const averageLength = totalMessages ? totalLength / totalMessages : 0;
 
   return {
@@ -119,10 +144,11 @@ export function extractHeuristics(messages: StoredMessage[]): HeuristicSnapshot 
 function tokenize(input: string): string[] {
   return input
     .toLowerCase()
-    .replace(/[!?.,;:()"'`]/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/www\.\S+/g, ' ')
     .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+    .map((token) => sanitizeToken(token ?? ''))
+    .filter((token): token is string => Boolean(token && token.length > 1 && !STOP_WORDS.has(token)));
 }
 
 function pickTop(map: Map<string, number>, limit: number): string[] {

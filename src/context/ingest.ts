@@ -1,6 +1,7 @@
 import { config } from '../config.ts';
 import { decaySnippets, insertUserSnippet, pruneSnippets, storeMessage } from '../db.ts';
 import { log } from '../logger.ts';
+import { prepareSnippetContent, sanitizeToken } from './filters.ts';
 import { refreshUserProfile } from './updater.ts';
 
 export type IngestedMessage = {
@@ -58,20 +59,17 @@ function captureSnippetIfInteresting(message: IngestedMessage) {
 }
 
 function buildSnippetExcerpt(content: string): string | null {
-  const trimmed = content.trim();
-  if (trimmed.length < 40 || trimmed.length > 280) return null;
-  if (/^https?:\/\//i.test(trimmed)) return null;
-  if (trimmed.split(/\s+/).length < 6) return null;
-  return trimmed.slice(0, 280);
+  const prepared = prepareSnippetContent(content);
+  if (!prepared) return null;
+  return prepared;
 }
 
 function extractSnippetTags(content: string): string[] {
   const tokens = content
     .toLowerCase()
-    .replace(/[!?.,;:()"'`]/g, ' ')
     .split(/\s+/)
-    .filter((token) => token.length > 3)
-    .slice(0, 12);
+    .map((token) => sanitizeToken(token))
+    .filter((token): token is string => Boolean(token && token.length > 3));
 
   const unique: string[] = [];
   for (const token of tokens) {
