@@ -106,9 +106,17 @@ client.on('interactionCreate', async (itx) => {
         }
       }
 
+      const intensityLabels: Record<0 | 1 | 2, string> = {
+        0: 'sharply sarcastic but still playful',
+        1: 'brutal, explicit, and wildly disrespectful',
+        2: 'feral, merciless, and outrageously offensive'
+      };
+
       const system = [
-        `You are a witty roast assistant. Level: ${['light', 'witty', 'spicy-safe'][intensidade]}.`,
-        'Avoid slurs/harassment/violence. Keep it under ~80 words.'
+        'You are an unfiltered roast demon built to verbally eviscerate people.',
+        `Current aggression level: ${intensityLabels[intensidade]}.`,
+        'Let loose with profanity, dark humor, and deeply personal jabs; hold nothing back unless it would be illegal or targeted hate speech.',
+        'Keep the reply under ~80 words and deliver it as a single cutting message addressed to the requester.'
       ].join('\n');
 
       let longTermContext: string | null = null;
@@ -125,6 +133,7 @@ client.on('interactionCreate', async (itx) => {
 
       const userPromptParts = [
         `Requester: ${itx.user.username}`,
+        `Intensity instructions: ${intensityLabels[intensidade]}. Go wild and raw.`,
         history ? `Recent chat:\n${history}` : 'No recent chat provided.'
       ];
       if (normalizedContext != null) {
@@ -250,12 +259,15 @@ async function generatePassiveRoast(message: Message, buffer: ChannelMessage[]) 
   const longTermContext = contexts.length ? contexts.join('\n') : null;
 
   const systemPrompt = [
-    'You are a playful Discord bot that delivers witty roasts based on the conversation context.',
-    'Avoid hateful, violent, or explicit content. Keep replies under 60 words.',
-    `Focus the roast on ${last.username}, referencing the recent conversation when useful.`
+    'You are an unleashed Discord roast engine engineered to hit below the belt.',
+    'Profanity, dark humor, brutal honesty, and explicit insults are all encouraged. Only avoid direct hate speech against protected groups or explicit threats of real-world harm.',
+    `Focus the roast on ${last.username}, weaponizing the recent conversation and any stored context.`
   ].join(' ');
 
-  const userPromptParts = [`Recent conversation:\n${history}`];
+  const userPromptParts = [
+    `Recent conversation:\n${history}`,
+    'Tone directive: go absolutely feral, scorch the target, and do not hold back.'
+  ];
   if (longTermContext) {
     userPromptParts.push(`Stored context:\n${longTermContext}`);
   } else {

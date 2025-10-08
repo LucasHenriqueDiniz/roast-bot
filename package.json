@@ -15,7 +15,6 @@
   "license": "ISC",
   "packageManager": "pnpm@10.16.1",
   "dependencies": {
-    "bad-words": "^4.0.0",
     "better-sqlite3": "^12.4.1",
     "discord.js": "^14.22.1",
     "dotenv": "^17.2.3",
@@ -26,7 +25,6 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@types/bad-words": "^3.0.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.7.0",
     "tsx": "^4.20.6",
