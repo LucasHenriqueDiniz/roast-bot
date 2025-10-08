@@ -10,71 +10,86 @@ export function composeProfileSummary(
   opts: { displayName?: string }
 ): ProfileSummary {
   const { displayName } = opts;
-  const { totalMessages, averageLength, topWords, catchphrases, topics, emojiRank, typoHighlights, laughPatterns, activeHours } =
+  const { messageCount, obsessions, catchphrases, emojiRank, typoHighlights, laughPatterns, activeHours, personalClaims } =
     heuristics;
-
-  const sentences: string[] = [];
 
   const label = displayName ? `${displayName}` : 'Esse usuário';
 
-  if (!totalMessages) {
-    sentences.push(`${label} ainda não deixou nada digno de arquivo. Assim que surgir material, eu guardo.`);
+  if (!messageCount) {
+    const fallback = `${label} ainda não deixou nada digno de arquivo. Assim que surgir material, eu guardo.`;
     return {
-      summary: sentences.join(' '),
+      summary: fallback,
       quirks: ['Ainda estamos coletando munição.']
     };
   }
 
-  sentences.push(
-    `${label} deixou ${totalMessages} mensagens recentes com média de ${Math.round(averageLength)} caracteres, sempre pingando no chat com a sutileza de um caminhão sem freio.`
-  );
+  const summaryParts: string[] = [];
 
-  if (topics.length) {
-    sentences.push(`Os assuntos que mais aparecem: ${formatList(topics.slice(0, 5))}.`);
+  if (obsessions.length) {
+    summaryParts.push(`${label} é obcecado por ${formatList(obsessions.slice(0, 3))}.`);
   }
 
-  if (topWords.length) {
-    sentences.push(`Palavras favoritas: ${formatList(topWords.slice(0, 6))}.`);
+  if (catchphrases.length) {
+    summaryParts.push(`Fala como disco riscado, jogando ${formatQuotedList(catchphrases.slice(0, 3))} em qualquer assunto.`);
   }
 
   if (emojiRank.length) {
-    sentences.push(`Emojis de estimação: ${formatList(emojiRank.slice(0, 5))}.`);
+    summaryParts.push(`Assina tudo com ${formatList(emojiRank.slice(0, 3))}, como se emoji fosse pontuação.`);
   }
 
   if (activeHours.length) {
-    sentences.push(`Atividade crônica em ${formatList(activeHours)}.`);
+    summaryParts.push(`Aparece nos horários ${formatActiveWindow(activeHours)}, como vampiro sem CLT.`);
   }
+
+  const summary = clampText(summaryParts.slice(0, 3).join(' '), 900);
 
   const quirks: string[] = [];
 
-  if (catchphrases.length) {
-    quirks.push(`Repete até cansar: ${formatQuotedList(catchphrases.slice(0, 4))}`);
+  for (const phrase of catchphrases.slice(0, 4)) {
+    quirks.push(`Muleta verbal: "${phrase}"`);
   }
 
-  if (laughPatterns.length) {
-    quirks.push(`Risada característica: ${formatList(laughPatterns)}`);
+  for (const obsession of obsessions.slice(0, 4)) {
+    quirks.push(`Obcecado por ${obsession}`);
+  }
+
+  if (emojiRank.length) {
+    quirks.push(`Emoji de estimação: ${emojiRank.slice(0, 2).join(' ')}`);
   }
 
   if (typoHighlights.length) {
-    quirks.push(`Erros clássicos: ${formatList(typoHighlights)}`);
+    quirks.push(`Digita ${formatList(typoHighlights.slice(0, 3))} como se estivesse possuído.`);
+  }
+
+  if (laughPatterns.length) {
+    quirks.push(`Quando ri, solta ${formatList(laughPatterns.slice(0, 3))}.`);
+  }
+
+  for (const claim of personalClaims.slice(0, 2)) {
+    quirks.push(`Admite: "${claim}"`);
   }
 
   if (!quirks.length) {
     quirks.push('Se acha perfeito, mas a gente sabe que não é.');
   }
 
-  const summary = clampText(sentences.join(' '), 1800);
-
-  return { summary, quirks };
+  return { summary: summary || `${label} existe, mas ainda não entregou material divertido.`, quirks };
 }
 
 function formatList(list: string[]): string {
+  if (!list.length) return '';
   if (list.length === 1) return list[0];
   return `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`;
 }
 
 function formatQuotedList(list: string[]): string {
   return list.map((item) => `"${item}"`).join(', ');
+}
+
+function formatActiveWindow(hours: string[]): string {
+  if (!hours.length) return '';
+  if (hours.length === 1) return hours[0];
+  return hours.slice(0, -1).join(', ') + ` e ${hours[hours.length - 1]}`;
 }
 
 function clampText(input: string, maxLength: number): string {

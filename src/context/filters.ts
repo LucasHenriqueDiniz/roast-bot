@@ -4,6 +4,15 @@ const INVITE_REGEX = /discord\.(gg|com\/invite)/i;
 const CODE_BLOCK_REGEX = /```/;
 const QUOTE_REGEX = /^>+/m;
 
+const SENSITIVE_PATTERNS: RegExp[] = [
+  /(api|secret|token|key|senha|pass(word)?)[\s:=]+[^\s]{8,}/gi,
+  /bearer\s+[a-z0-9._-]{12,}/gi,
+  /gh[pousr]_[a-z0-9]{20,}/gi,
+  /akia[0-9a-z]{16}/gi,
+  /[a-f0-9]{32,}/gi,
+  /(?:\d[\s-]?){10,}/g
+];
+
 const PERSONAL_TOKENS = new Set([
   'eu',
   'tu',
@@ -112,7 +121,15 @@ const PERSONAL_TOKENS = new Set([
 ]);
 
 export function normalizeContent(content: string): string {
-  return content.replace(/\s+/g, ' ').trim();
+  return content.replace(/\[REDACTED\]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function redactSensitiveSegments(content: string): string {
+  let redacted = content;
+  for (const pattern of SENSITIVE_PATTERNS) {
+    redacted = redacted.replace(pattern, '[REDACTED]');
+  }
+  return redacted;
 }
 
 export function isLikelyNoise(content: string): boolean {
@@ -142,7 +159,11 @@ export function prepareSnippetContent(content: string): string | null {
   if (URL_REGEX.test(normalized) || INVITE_REGEX.test(normalized)) return null;
   if (CODE_BLOCK_REGEX.test(normalized)) return null;
 
-  const compact = normalized.replace(/\s+/g, '');
+  const redacted = redactSensitiveSegments(normalized);
+
+  if (redacted.includes('[REDACTED]')) return null;
+
+  const compact = redacted.replace(/\s+/g, '');
   if (!compact) return null;
 
   const letters = compact.match(LETTER_REGEX)?.length ?? 0;
@@ -151,7 +172,7 @@ export function prepareSnippetContent(content: string): string | null {
   const ratio = letters / compact.length;
   if (ratio < 0.6) return null;
 
-  const lowerTokens = normalized
+  const lowerTokens = redacted
     .toLowerCase()
     .split(/\s+/)
     .map((token) => token.replace(/[^\p{L}]/gu, ''))
@@ -160,7 +181,7 @@ export function prepareSnippetContent(content: string): string | null {
   const hasPersonalAnchor = lowerTokens.some((token) => PERSONAL_TOKENS.has(token));
   if (!hasPersonalAnchor) return null;
 
-  return normalized;
+  return redacted;
 }
 
 export function filterMeaningfulMessages<T extends { content: string }>(messages: T[]): T[] {
@@ -170,5 +191,7 @@ export function filterMeaningfulMessages<T extends { content: string }>(messages
 export function sanitizeToken(token: string): string | null {
   const cleaned = token.replace(/[^\p{L}]/gu, '').trim();
   if (!cleaned) return null;
+  if (cleaned.length > 18) return null;
+  if (cleaned.toLowerCase() === 'redacted') return null;
   return cleaned;
 }

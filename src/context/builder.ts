@@ -199,8 +199,8 @@ function formatRecentChat(messages: RecentMessage[], focusUserId: string): strin
 }
 
 function formatSnippet(snippet: UserSnippet): string {
-  const tagText = snippet.tags.length ? ` tags: ${snippet.tags.join(', ')}` : '';
-  return `Snippet (${snippet.score.toFixed(2)}${tagText}): "${sanitize(snippet.excerpt)}"`;
+  const tagText = snippet.tags.length ? snippet.tags.join(', ') : 'sem tags dignas';
+  return `Munição (${tagText}): "${sanitize(snippet.excerpt)}"`;
 }
 
 function safeParseStringArray(input: string): string[] {

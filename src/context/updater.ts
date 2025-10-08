@@ -41,9 +41,9 @@ export function refreshUserProfile(params: {
       scope: 'profile-refresh',
       guildId,
       userId,
-      totalMessages: heuristics.totalMessages,
-      topics: heuristics.topics.slice(0, 5),
-      emojiRank: heuristics.emojiRank.slice(0, 3)
+      messages: heuristics.messageCount,
+      obsessions: heuristics.obsessions.slice(0, 5),
+      catchphrases: heuristics.catchphrases.slice(0, 3)
     },
     'updated user profile summary'
   );
