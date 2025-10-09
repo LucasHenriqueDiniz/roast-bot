@@ -51,11 +51,14 @@ export async function handleRoastMe(interaction: ChatInputCommandInteraction) {
       lastError = error;
 
       if (error instanceof LLMTimeoutError) {
+        const hasFallback = attempt + 1 < budgets.length;
         log.warn(
           { err: error, budget, attempt: attempt + 1, budgets },
-          'roast attempt timed out, trying fallback budget'
+          hasFallback ? 'roast attempt timed out, trying fallback budget' : 'roast attempt timed out'
         );
-        continue;
+        if (hasFallback) {
+          continue;
+        }
       }
 
       if (error instanceof LLMModelNotFoundError) {
@@ -125,6 +128,17 @@ function resolveDisplayName(interaction: ChatInputCommandInteraction): string {
 
 function buildBudgetList(contexto: number): number[] {
   const primary = contexto >= 8 ? config.contextExtendedBudget : config.contextCompactBudget;
-  const fallback = config.contextCompactBudget;
-  return primary === fallback ? [primary] : [primary, fallback];
+  const budgets = new Set<number>([primary]);
+
+  const fallbackTargets = [0.65, 0.45, 0.3];
+  for (const ratio of fallbackTargets) {
+    const value = Math.max(120, Math.floor(primary * ratio));
+    budgets.add(value);
+  }
+
+  budgets.add(Math.min(primary, config.contextCompactBudget));
+
+  return [...budgets]
+    .filter((value) => value > 0)
+    .sort((a, b) => b - a);
 }

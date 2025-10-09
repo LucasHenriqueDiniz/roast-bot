@@ -16,7 +16,7 @@ export type IngestedMessage = {
 
 const pendingCounters = new Map<string, number>();
 
-export function ingestMessage(message: IngestedMessage, options: { skipProfileRefresh?: boolean } = {}) {
+export function ingestMessage(message: IngestedMessage, options: { skipProfileRefresh?: boolean } = {}): boolean {
   const inserted = storeMessage(
     message.guildId,
     message.channelId,
@@ -27,20 +27,26 @@ export function ingestMessage(message: IngestedMessage, options: { skipProfileRe
   );
 
   if (!inserted) {
-    return;
+    return false;
   }
 
   captureSnippetIfInteresting(message);
 
   if (options.skipProfileRefresh) {
-    return;
+    return true;
   }
 
   bumpCounter(message.guildId, message.userId);
   maybeRefreshProfile(message);
+
+  return true;
 }
 
-export function forceRefreshProfile(guildId: string, userId: string, displayName?: string) {
+export function forceRefreshProfile(
+  guildId: string,
+  userId: string,
+  displayName?: string
+): { updated: boolean; timestamp: number } | null {
   log.info({ guildId, userId }, 'manual profile refresh requested');
   const result = refreshUserProfile({ guildId, userId, displayName });
   if (result?.updated) {
@@ -48,6 +54,7 @@ export function forceRefreshProfile(guildId: string, userId: string, displayName
     pruneSnippets(guildId, userId, config.snippetMinScore);
   }
   pendingCounters.delete(makeKey(guildId, userId));
+  return result ?? null;
 }
 
 function captureSnippetIfInteresting(message: IngestedMessage) {

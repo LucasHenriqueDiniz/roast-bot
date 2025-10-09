@@ -6,6 +6,7 @@ import { log } from '../logger.ts';
 
 export type BackfillResult = {
   collected: number;
+  reused: number;
   scannedChannels: number;
   errors: number;
 };
@@ -30,19 +31,29 @@ export async function backfillUserMessages(
   }
 
   let collected = 0;
+  let reused = 0;
   let errors = 0;
+  let processed = 0;
 
   for (const channel of candidates) {
-    if (collected >= limit) break;
+    if (processed >= limit) break;
     try {
-      collected += await backfillFromChannel({ channel, guild, userId, limit: limit - collected });
+      const result = await backfillFromChannel({
+        channel,
+        guild,
+        userId,
+        limit: limit - processed
+      });
+      collected += result.inserted;
+      reused += result.reused;
+      processed += result.processed;
     } catch (error) {
       errors += 1;
       log.warn({ scope: 'context-backfill', guildId: guild.id, channelId: channel.id, err: error }, 'failed to backfill channel');
     }
   }
 
-  return { collected, scannedChannels: candidates.length, errors };
+  return { collected, reused, scannedChannels: candidates.length, errors };
 }
 
 async function backfillFromChannel(params: {
@@ -50,13 +61,15 @@ async function backfillFromChannel(params: {
   guild: Guild;
   userId: string;
   limit: number;
-}): Promise<number> {
+}): Promise<{ processed: number; inserted: number; reused: number }> {
   const { channel, guild, userId, limit } = params;
-  let collected = 0;
+  let processed = 0;
+  let inserted = 0;
+  let reused = 0;
   let before: string | undefined;
 
-  while (collected < limit) {
-    const fetchLimit = Math.min(FETCH_BATCH_SIZE, limit - collected);
+  while (processed < limit) {
+    const fetchLimit = Math.min(FETCH_BATCH_SIZE, limit - processed);
     const batch = await channel.messages.fetch({ limit: fetchLimit, ...(before ? { before } : {}) });
     if (!batch.size) break;
 
@@ -69,7 +82,7 @@ async function backfillFromChannel(params: {
       if (!clean) continue;
       if (isLikelyNoise(clean)) continue;
 
-      ingestMessage(
+      const stored = ingestMessage(
         {
           guildId: guild.id,
           channelId: channel.id,
@@ -82,14 +95,20 @@ async function backfillFromChannel(params: {
         { skipProfileRefresh: true }
       );
 
-      collected += 1;
-      if (collected >= limit) break;
+      processed += 1;
+      if (stored) {
+        inserted += 1;
+      } else {
+        reused += 1;
+      }
+
+      if (processed >= limit) break;
     }
 
-    if (batch.size < fetchLimit || !before) {
+    if (batch.size < fetchLimit || !before || processed >= limit) {
       break;
     }
   }
 
-  return collected;
+  return { processed, inserted, reused };
 }
