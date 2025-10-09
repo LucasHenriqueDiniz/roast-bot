@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, Message, MessageFlags, TextBasedChannel } from 'discord.js';
 import { config } from '../config.ts';
 import { buildRoastPrompt, RecentMessage } from '../context/builder.ts';
-import { chat, LLMRequestError, LLMTimeoutError } from '../llm.ts';
+import { chat, LLMModelNotFoundError, LLMRequestError, LLMTimeoutError } from '../llm.ts';
 import { log } from '../logger.ts';
 import { sanitizeForPrompt } from '../util/text.ts';
 
@@ -56,6 +56,14 @@ export async function handleRoastMe(interaction: ChatInputCommandInteraction) {
           'roast attempt timed out, trying fallback budget'
         );
         continue;
+      }
+
+      if (error instanceof LLMModelNotFoundError) {
+        log.warn({ err: error, budget, attempt: attempt + 1 }, 'llm model not available');
+        await interaction.editReply(
+          `${error.message}\n\nPara usar modelos em nuvem, configure OLLAMA_HOST para o endpoint do provedor ou troque o MODEL por um disponível localmente.`
+        );
+        return;
       }
 
       if (error instanceof LLMRequestError) {

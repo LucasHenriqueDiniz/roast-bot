@@ -25,6 +25,13 @@ export class LLMTimeoutError extends LLMRequestError {
   }
 }
 
+export class LLMModelNotFoundError extends LLMRequestError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LLMModelNotFoundError';
+  }
+}
+
 export async function chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
   const { temperature = 0.8, timeoutMs = config.llmTimeoutMs } = options;
   const controller = new AbortController();
@@ -45,6 +52,22 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
 
     if (statusCode < 200 || statusCode >= 300) {
       const errorText = await body.text();
+
+      if (statusCode === 404) {
+        try {
+          const parsed = JSON.parse(errorText) as { error?: string };
+          const detail = parsed?.error ?? errorText;
+          if (detail.toLowerCase().includes('model')) {
+            throw new LLMModelNotFoundError(
+              `Modelo "${config.model}" não encontrado em ${config.ollamaHost}. ` +
+                'Garanta que o modelo exista (ex.: `ollama pull <modelo>`) ou ajuste OLLAMA_HOST para um endpoint compatível.'
+            );
+          }
+        } catch {
+          /* swallow JSON parse error and rethrow generic request error below */
+        }
+      }
+
       throw new LLMRequestError(`Ollama responded ${statusCode}: ${errorText}`);
     }
 
