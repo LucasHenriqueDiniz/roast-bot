@@ -1,0 +1,144 @@
+import { ChatInputCommandInteraction, Message, MessageFlags, TextBasedChannel } from 'discord.js';
+import { config } from '../config.ts';
+import { buildRoastPrompt, RecentMessage } from '../context/builder.ts';
+import { chat, LLMModelNotFoundError, LLMRequestError, LLMTimeoutError } from '../llm.ts';
+import { log } from '../logger.ts';
+import { sanitizeForPrompt } from '../util/text.ts';
+
+export async function handleRoastMe(interaction: ChatInputCommandInteraction) {
+  if (!interaction.guildId) {
+    await interaction.reply({ content: 'Apenas servidores.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const intensidade = (interaction.options.getInteger('intensidade') ?? 1) as 0 | 1 | 2;
+  const contexto = Math.min(Math.max(interaction.options.getInteger('contexto') ?? 6, 0), 15);
+
+  await interaction.deferReply();
+
+  const recentMessages = await collectRecentMessages(interaction, contexto);
+
+  const budgets = buildBudgetList(contexto);
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < budgets.length; attempt += 1) {
+    const budget = budgets[attempt];
+    const prompt = buildRoastPrompt({
+      guildId: interaction.guildId,
+      requesterId: interaction.user.id,
+      requesterDisplayName: resolveDisplayName(interaction),
+      intensity: intensidade,
+      recentMessages,
+      budgetTokens: budget
+    });
+
+    try {
+      const reply = await chat(
+        [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user }
+        ],
+        {
+          temperature: 0.9,
+          timeoutMs: attempt === 0 ? config.llmTimeoutMs : config.llmRetryTimeoutMs
+        }
+      );
+
+      const message = reply || 'Sem material ainda. Tenta de novo depois.';
+      await interaction.editReply(message);
+      return;
+    } catch (error) {
+      lastError = error;
+
+      if (error instanceof LLMTimeoutError) {
+        const hasFallback = attempt + 1 < budgets.length;
+        log.warn(
+          { err: error, budget, attempt: attempt + 1, budgets },
+          hasFallback ? 'roast attempt timed out, trying fallback budget' : 'roast attempt timed out'
+        );
+        if (hasFallback) {
+          continue;
+        }
+      }
+
+      if (error instanceof LLMModelNotFoundError) {
+        log.warn({ err: error, budget, attempt: attempt + 1 }, 'llm model not available');
+        await interaction.editReply(
+          `${error.message}\n\nPara usar modelos em nuvem, configure OLLAMA_HOST para o endpoint do provedor ou troque o MODEL por um disponível localmente.`
+        );
+        return;
+      }
+
+      if (error instanceof LLMRequestError) {
+        log.error({ err: error, budget, attempt: attempt + 1 }, 'failed to roast user');
+      }
+      break;
+    }
+  }
+
+  const timeoutMessage =
+    lastError instanceof LLMTimeoutError
+      ? 'O modelo demorou demais pra responder. Tenta de novo em alguns segundos.'
+      : 'Erro chamando o modelo. Veja os logs.';
+
+  await interaction.editReply(timeoutMessage);
+}
+
+async function collectRecentMessages(
+  interaction: ChatInputCommandInteraction,
+  contexto: number
+): Promise<RecentMessage[]> {
+  if (contexto <= 0) return [];
+  const channel = interaction.channel;
+  if (!channel || !isFetchableChannel(channel)) return [];
+
+  const fetched = await channel.messages.fetch({ limit: Math.min(contexto + 5, 20) });
+  const sorted = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  return sorted.map(mapToRecentMessage).filter(Boolean) as RecentMessage[];
+}
+
+function isFetchableChannel(channel: TextBasedChannel): channel is TextBasedChannel & {
+  messages: TextBasedChannel['messages'] & { fetch: TextBasedChannel['messages']['fetch'] };
+} {
+  return typeof channel.messages?.fetch === 'function';
+}
+
+function mapToRecentMessage(message: Message): RecentMessage | null {
+  if (!message.cleanContent?.trim()) return null;
+  return {
+    authorName: message.member?.displayName ?? message.author.username,
+    userId: message.author.id,
+    content: sanitizeForPrompt(message.cleanContent)
+  };
+}
+
+function resolveDisplayName(interaction: ChatInputCommandInteraction): string {
+  const member = interaction.member;
+  if (member && typeof (member as { nickname?: string }).nickname === 'string') {
+    return (member as { nickname?: string }).nickname ?? interaction.user.username;
+  }
+
+  if (member && typeof (member as { displayName?: string }).displayName === 'string') {
+    return (member as { displayName?: string }).displayName ?? interaction.user.username;
+  }
+
+  return interaction.user.username;
+}
+
+function buildBudgetList(contexto: number): number[] {
+  const primary = contexto >= 8 ? config.contextExtendedBudget : config.contextCompactBudget;
+  const budgets = new Set<number>([primary]);
+
+  const fallbackTargets = [0.65, 0.45, 0.3];
+  for (const ratio of fallbackTargets) {
+    const value = Math.max(120, Math.floor(primary * ratio));
+    budgets.add(value);
+  }
+
+  budgets.add(Math.min(primary, config.contextCompactBudget));
+
+  return [...budgets]
+    .filter((value) => value > 0)
+    .sort((a, b) => b - a);
+}
