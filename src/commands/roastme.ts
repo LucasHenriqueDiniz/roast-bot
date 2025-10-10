@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, Message, MessageFlags, TextBasedChannel } from 'discord.js';
 import { config } from '../config.ts';
 import { buildRoastPrompt, RecentMessage } from '../context/builder.ts';
-import { chat, LLMRequestError, LLMTimeoutError } from '../llm.ts';
+import { chat, LLMModelNotFoundError, LLMRequestError, LLMTimeoutError } from '../llm.ts';
 import { log } from '../logger.ts';
 import { sanitizeForPrompt } from '../util/text.ts';
 
@@ -51,11 +51,22 @@ export async function handleRoastMe(interaction: ChatInputCommandInteraction) {
       lastError = error;
 
       if (error instanceof LLMTimeoutError) {
+        const hasFallback = attempt + 1 < budgets.length;
         log.warn(
           { err: error, budget, attempt: attempt + 1, budgets },
-          'roast attempt timed out, trying fallback budget'
+          hasFallback ? 'roast attempt timed out, trying fallback budget' : 'roast attempt timed out'
         );
-        continue;
+        if (hasFallback) {
+          continue;
+        }
+      }
+
+      if (error instanceof LLMModelNotFoundError) {
+        log.warn({ err: error, budget, attempt: attempt + 1 }, 'llm model not available');
+        await interaction.editReply(
+          `${error.message}\n\nPara usar modelos em nuvem, configure OLLAMA_HOST para o endpoint do provedor ou troque o MODEL por um disponível localmente.`
+        );
+        return;
       }
 
       if (error instanceof LLMRequestError) {
@@ -117,6 +128,17 @@ function resolveDisplayName(interaction: ChatInputCommandInteraction): string {
 
 function buildBudgetList(contexto: number): number[] {
   const primary = contexto >= 8 ? config.contextExtendedBudget : config.contextCompactBudget;
-  const fallback = config.contextCompactBudget;
-  return primary === fallback ? [primary] : [primary, fallback];
+  const budgets = new Set<number>([primary]);
+
+  const fallbackTargets = [0.65, 0.45, 0.3];
+  for (const ratio of fallbackTargets) {
+    const value = Math.max(120, Math.floor(primary * ratio));
+    budgets.add(value);
+  }
+
+  budgets.add(Math.min(primary, config.contextCompactBudget));
+
+  return [...budgets]
+    .filter((value) => value > 0)
+    .sort((a, b) => b - a);
 }

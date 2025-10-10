@@ -3,7 +3,7 @@ import { buildPassiveRoastPrompt, RecentMessage } from '../context/builder.ts';
 import { ingestMessage } from '../context/ingest.ts';
 import { isLikelyNoise } from '../context/filters.ts';
 import { config } from '../config.ts';
-import { chat, LLMRequestError, LLMTimeoutError } from '../llm.ts';
+import { chat, LLMModelNotFoundError, LLMRequestError, LLMTimeoutError } from '../llm.ts';
 import { log } from '../logger.ts';
 import { sanitizeForPrompt } from '../util/text.ts';
 import { getChannelPassiveInterval } from '../db.ts';
@@ -241,6 +241,10 @@ async function runPassiveRoast(params: {
     if (error instanceof LLMTimeoutError) {
       log.warn({ err: error, guildId, channelId: channel.id }, 'passive roast timed out');
       return { sent: false, reason: 'timeout' };
+    }
+    if (error instanceof LLMModelNotFoundError) {
+      log.warn({ err: error, guildId, channelId: channel.id }, 'passive roast model not available');
+      return { sent: false, reason: 'model-missing' };
     }
     if (error instanceof LLMRequestError) {
       log.error({ err: error, guildId, channelId: channel.id }, 'passive roast failed');

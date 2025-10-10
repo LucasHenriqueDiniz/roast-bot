@@ -3,6 +3,7 @@ import { getGuildSettings, getTopSnippets, getUserProfile, UserSnippet } from '.
 import { log } from '../logger.ts';
 import { getLanguageDefinition } from '../settings/languages.ts';
 import { getPersonalityDefinition } from '../settings/personalities.ts';
+import { refreshUserProfile } from './updater.ts';
 
 export type RecentMessage = {
   authorName: string;
@@ -29,7 +30,13 @@ export function buildUserContextBlock(
   userId: string,
   budgetTokens: number
 ): UserContextBlock {
-  const profile = getUserProfile(guildId, userId);
+  let profile = getUserProfile(guildId, userId);
+  if (!profile) {
+    const refreshed = refreshUserProfile({ guildId, userId });
+    if (refreshed) {
+      profile = getUserProfile(guildId, userId);
+    }
+  }
   if (!profile) {
     return { text: null, tokensUsed: 0, summaryLength: 0, quirksUsed: [], snippetsUsed: [] };
   }
