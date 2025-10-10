@@ -7,7 +7,7 @@ const envSchema = z.object({
   ALLOWED_GUILD_ID: z.string().optional(),
   OLLAMA_HOST: z.string().default('http://127.0.0.1:11434'),
   MODEL: z.string().default('gemma3:4b'),
-  LLM_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
+  LLM_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(30_000),
   LLM_RETRY_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(90_000).default(22_000),
   PASSIVE_INTERVAL: z.coerce.number().int().min(1).default(10),
   PASSIVE_CONTEXT_MESSAGES: z.coerce.number().int().min(1).max(10).default(3),
